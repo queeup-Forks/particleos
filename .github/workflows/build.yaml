@@ -1,0 +1,82 @@
+name: Build ParticleOS
+on:
+  pull_request:
+  push:
+    branches: custom
+  workflow_dispatch:
+
+jobs:
+  build_image:
+    name: Build image
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: systemd/mkosi@main
+
+      - uses: actions/checkout@v4
+
+      - name: Set build date
+        id: build_date
+        run: |
+          echo "BUILD_DATE=$(date +"%Y%m%d")" | tee $GITHUB_OUTPUT
+
+      - name: Configure mkosi
+        env:
+          BUILD_DATE: ${{ steps.build_date.outputs.BUILD_DATE }}
+        run: |
+          tee mkosi.local.conf <<- EOF
+          #[Include]
+          #Include=mkosi-vm
+
+          [Distribution]
+          Distribution=fedora
+          Release=42
+
+          [Config]
+          Profiles=obs,desktop,gnome-custom
+
+          [Output]
+          ImageVersion=${{ env.BUILD_DATE }}
+          #SplitArtifacts=uki  # do not split out partitions
+          SplitArtifacts=
+          RepartDirectories=mkosi.repart-custom
+
+          [Validation]
+          SecureBoot=no
+          SignExpectedPcr=no
+          Verity=no
+
+          #[Content]
+          #Keymap=tr
+          #Timezone=Europe/Istanbul
+          #Locale=tr_TR.UTF-8
+          InitrdProfiles=plymouth
+          Autologin=yes
+          #WithNetwork=yes
+          Packages=
+                  flatpak
+                  toolbox
+                  podman
+          EOF
+
+      - name: Generate secure boot key
+        run: mkosi --debug genkey
+
+      - name: Show summary
+        run: mkosi summary
+
+      - name: Build
+        run: |
+          mkosi --version
+          mkosi -B -f
+          ls -ahl mkosi.output
+          file mkosi.output/*
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        env:
+          BUILD_DATE: ${{ steps.build_date.outputs.BUILD_DATE }}
+        with:
+          name: ParticleOS_${{ env.BUILD_DATE }}_x86-64.raw
+          path: mkosi.output/ParticleOS_${{ env.BUILD_DATE }}_x86-64.raw
+          overwrite: true
